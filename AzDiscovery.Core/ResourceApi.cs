@@ -17,25 +17,38 @@ using Newtonsoft.Json;
 
 namespace AzDiscovery.Core
 {
-    public class Resources
+    public class ResourceApi
     {
         private readonly ArmClient _armClient;
 
-        public Resources(TokenCredential azureTokenCredential)
+        public ResourceApi(TokenCredential azureTokenCredential)
         {
             _armClient = new ArmClient(azureTokenCredential);
         }
 
-        public List<AzureResource> GetDiscoveredResources(string query, List<string>? managementGroups = null, List<string>? subscriptions = null, int? pageSize = 500)
+        public ResourceQueryResponse GetDiscoveredResources(string query, 
+                                                            List<string>? managementGroups = null, 
+                                                            List<string>? subscriptions = null, 
+                                                            int skip = 0, 
+                                                            int take = 100, 
+                                                            string? skipToken = "")
         {
             var tenant = _armClient.GetTenants().First();
+            var result = new ResourceQueryResponse();
             var request = new ResourceQueryContent(query)
             {
                 Options = new ResourceQueryRequestOptions
                 {
-                    Top = pageSize
+                    Top = take,
+                    Skip = skip
                 }
             };
+
+            // Check if we have a skip token
+            if (!string.IsNullOrEmpty(skipToken))
+            {
+                request.Options.SkipToken = skipToken;
+            }
 
             // Add any Management Group filters
             if (managementGroups != null && managementGroups.Count > 0)
@@ -56,7 +69,6 @@ namespace AzDiscovery.Core
             }
 
             // Execute the Query
-            var resources = new List<AzureResource>();
             var response = tenant.GetResources(request);
 
             // First result - if we have a large response, it will be paged
@@ -65,24 +77,27 @@ namespace AzDiscovery.Core
                 var tempResult = JsonConvert.DeserializeObject<List<AzureResource>>(response.Value.Data.ToString());
                 if (tempResult != null && tempResult.Count > 0)
                 {
-                    resources.AddRange(tempResult);
+                    result.AzureResources.AddRange(tempResult);
+                    result.TotalResults = response.Value.TotalRecords;
+                    result.SkipToken = response.Value.SkipToken;
                 }
             }
 
             // Loop through the remaining pages of results
-            while (response.Value.SkipToken != null)
-            {
-                request.Options.SkipToken = response.Value.SkipToken;
-                response = tenant.GetResources(request);
-                var tempResult = JsonConvert.DeserializeObject<List<AzureResource>>(response.Value.Data.ToString());
-                if (tempResult != null && tempResult.Count > 0)
-                {
-                    resources.AddRange(tempResult);
-                }
-            }
+            //while (response.Value.SkipToken != null)
+            //{
+            //    request.Options.SkipToken = response.Value.SkipToken;
+            //    response = tenant.GetResources(request);
+            //    var tempResult = JsonConvert.DeserializeObject<List<AzureResource>>(response.Value.Data.ToString());
+            //    if (tempResult != null && tempResult.Count > 0)
+            //    {
+            //        resources.AddRange(tempResult);
+            //    }
+            //}
+
 
             // Return the results
-            return resources;
+            return result;
         }
     }
 }
